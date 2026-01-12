@@ -17,7 +17,7 @@ data:
   {{- $replicas := int .Values.kafka.replicas }}
   {{- $voters := list }}
   {{- if eq $replicas 1 }}
-  {{- $voters = append $voters "1@localhost:9093" }}
+  {{- $voters = append $voters (printf "1@%s-0.%s-headless.%s.svc.cluster.local:9093" $.Release.Name $.Release.Name $.Values.namespace) }}
   {{- else }}
   {{- range $i := until $replicas }}
   {{- $nodeId := add1 $i }}
