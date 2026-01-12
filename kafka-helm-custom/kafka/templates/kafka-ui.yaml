@@ -1,0 +1,142 @@
+{{ if .Values.kafkaUI.enabled }}
+{{/*
+Kafka UI ConfigMap
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-ui-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: kafka-ui
+data:
+  KAFKA_CLUSTERS_0_NAME: "local-cluster"
+  KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:{{ .Values.kafka.listeners.client.port }}"
+  KAFKA_UI_BROKERS_CLUSTERIDENTIFIER: "local-cluster"
+  LOGGING_LEVEL_ROOT: "WARN"
+
+---
+{{/*
+Kafka UI Deployment
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: kafka-ui
+    component: ui
+spec:
+  replicas: {{ .Values.kafkaUI.replicas }}
+  selector:
+    matchLabels:
+      app: kafka-ui
+      component: ui
+  template:
+    metadata:
+      labels:
+        app: kafka-ui
+        component: ui
+    spec:
+      {{ if .Values.security.securityContext.enabled }}
+      securityContext:
+        fsGroup: {{ .Values.security.securityContext.fsGroup }}
+      {{- end }}
+      
+      containers:
+        - name: kafka-ui
+          image: "{{ .Values.kafkaUI.image.registry }}/{{ .Values.kafkaUI.image.repository }}:{{ .Values.kafkaUI.image.tag }}"
+          imagePullPolicy: {{ .Values.kafkaUI.image.pullPolicy }}
+          
+          {{ if .Values.security.securityContext.enabled }}
+          securityContext:
+            runAsUser: {{ .Values.security.securityContext.runAsUser }}
+            runAsNonRoot: {{ .Values.security.securityContext.runAsNonRoot }}
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          {{- end }}
+          
+          ports:
+            - name: http
+              containerPort: {{ .Values.kafkaUI.service.port }}
+          
+          envFrom:
+            - configMapRef:
+                name: kafka-ui-config
+          
+          env:
+            - name: JAVA_OPTS
+              value: "-Xms256M -Xmx512M"
+            - name: SERVER_PORT
+              value: {{ .Values.kafkaUI.service.port | quote }}
+          
+          {{ if .Values.healthChecks.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          {{ end }}
+          
+          resources:
+            requests:
+              cpu: {{ .Values.kafkaUI.resources.requests.cpu | quote }}
+              memory: {{ .Values.kafkaUI.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.kafkaUI.resources.limits.cpu | quote }}
+              memory: {{ .Values.kafkaUI.resources.limits.memory | quote }}
+
+---
+{{/*
+Kafka UI Service
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: kafka-ui
+    component: ui
+spec:
+  type: ClusterIP
+  selector:
+    app: kafka-ui
+    component: ui
+  ports:
+    - name: http
+      port: {{ .Values.kafkaUI.service.port }}
+      targetPort: http
+
+---
+{{/*
+Kafka UI External Service
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui-external
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: kafka-ui
+    component: ui
+spec:
+  type: {{ .Values.kafkaUI.service.type }}
+  selector:
+    app: kafka-ui
+    component: ui
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{ end }}

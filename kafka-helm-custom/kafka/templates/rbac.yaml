@@ -1,0 +1,57 @@
+{{/*
+Kafka Namespace
+DISABLED: Let Helm manage the namespace via the -n flag in helm install
+The -n flag automatically creates the namespace if it doesn't exist
+This avoids timing issues and ownership conflicts
+
+To deploy, use:
+  helm install kafka . -n kfk --create-namespace --set namespace=kfk
+
+The --create-namespace flag will create 'kfk' namespace automatically
+*/}}
+
+{{/*
+Kafka ServiceAccount
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: kafka
+    release: {{ .Release.Name }}
+---
+{{/*
+Kafka ClusterRole
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-kafka
+  labels:
+    app: kafka
+    release: {{ .Release.Name }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+{{/*
+Kafka ClusterRoleBinding
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-kafka
+  labels:
+    app: kafka
+    release: {{ .Release.Name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-kafka
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}
+    namespace: {{ .Values.namespace }}

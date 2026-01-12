@@ -1,0 +1,191 @@
+# Simplified Kafka Helm Chart - values.yaml
+
+# Namespace Configuration
+# IMPORTANT: This must match the -n flag used in helm install command
+# If you use: helm install kafka . -n kfk
+# Then set:   namespace: kfk
+# Otherwise you'll get namespace ownership conflicts
+namespace: kfk  # Change this to match your target namespace (e.g., kfk, production, staging)
+
+# Kafka image configuration
+# Change these to use different Docker images
+image:
+  registry: ""                              # Docker registry (empty = default, "docker.io" = Docker Hub)
+  repository: test-kfk                      # Image repository name (e.g., "kafka", "apache/kafka")
+  tag: "latest"                             # Image tag/version (e.g., "kraft-kraft-v1", "4.1.1")
+  pullPolicy: IfNotPresent                  # When to pull: IfNotPresent, Always, Never
+
+# Examples of different image configurations:
+#
+# Option 1: Local/Custom Image
+#   image:
+#     registry: ""
+#     repository: kafka
+#     tag: "kraft-kraft-v1"
+#
+# Option 2: Docker Hub Apache Kafka
+#   image:
+#     registry: "docker.io"
+#     repository: apache/kafka
+#     tag: "4.1.1"
+#
+# Option 3: Private Registry
+#   image:
+#     registry: "my-registry.com"
+#     repository: kafka
+#     tag: "v1.0"
+
+# Init container image used for fixing volume permissions
+# Use a small distro that provides shell + chown
+initImage: alpine:3.18
+
+# Cluster configuration
+kafka:
+  # Number of brokers
+  replicas: 1
+
+  # Cluster configuration
+  clusterId: "MkU3OEVBNTcwNTJENDM2Qk"
+  
+  # KRaft mode settings
+  kraftVersion: 1
+  processRoles: "broker,controller"  # Combined role for simple setup
+  
+  # Listeners configuration
+  listeners:
+    client:
+      enabled: true
+      port: 9092
+      protocol: "PLAINTEXT"  # Options: PLAINTEXT, SASL_PLAINTEXT, SSL, SASL_SSL
+    
+    controller:
+      enabled: true
+      port: 9093
+      protocol: "PLAINTEXT"
+    
+    internal:
+      enabled: true
+      port: 9094
+      protocol: "PLAINTEXT"
+  
+  # Replication settings
+  replication:
+    offsetsTopicReplicationFactor: 1    # Change to 3 for production (3+ brokers)
+    transactionLogReplicationFactor: 1  # Change to 3 for production
+    transactionLogMinIsr: 1             # Change to 2 for production
+    minInSyncReplicas: 1                # Change to 2 for production
+    defaultReplicationFactor: 1         # Change to 3 for production
+  
+  # Storage configuration
+  storage:
+    enabled: true
+    size: "20Gi"                        # Storage size per broker
+    className: "longhorn"               # Change to your storage class
+    mountPath: "/bitnami/kafka/data"
+    ephemeral: false                      # If true, use emptyDir instead of PVC (useful for local testing)
+    logs:
+      retentionHours: 168               # 7 days retention
+      retentionBytes: ""                # Unlimited by size
+      segmentBytes: "1073741824"         # 1GB segments
+  
+  # Performance tuning
+  performance:
+    networkThreads: 8
+    ioThreads: 8
+    socketSendBufferBytes: "102400"
+    socketReceiveBufferBytes: "102400"
+    socketRequestMaxBytes: "104857600"
+    batchSize: "16384"
+    lingerMs: "10"
+  
+  # Resource allocation
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+  
+  # JVM settings
+  jvmHeap:
+    min: "512M"
+    max: "1G"
+
+# Kafka UI configuration
+kafkaUI:
+  enabled: true
+  replicas: 1
+  
+  # Kafka UI Docker image configuration
+  # Change these to use different Kafka UI versions or registries
+  image:
+    registry: docker.io                   # Registry (e.g., "docker.io", "my-registry.com")
+    repository: provectuslabs/kafka-ui    # Repository name
+    tag: "latest"                         # Tag/version (e.g., "latest", "v0.7.1")
+    pullPolicy: IfNotPresent              # Pull policy: IfNotPresent, Always, Never
+  
+  # Examples:
+  # Option 1: Default (Docker Hub)
+  #   image:
+  #     registry: docker.io
+  #     repository: provectuslabs/kafka-ui
+  #     tag: "latest"
+  #
+  # Option 2: Private Registry
+  #   image:
+  #     registry: my-registry.com
+  #     repository: kafka-ui
+  #     tag: "v0.7.1"
+    repository: provectuslabs/kafka-ui
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+  
+  service:
+    type: LoadBalancer  # Options: ClusterIP, NodePort, LoadBalancer
+    port: 8080
+
+# Service configuration
+service:
+  type: LoadBalancer  # For Kafka brokers: LoadBalancer or ClusterIP
+  port: 9092
+  internalPort: 9094
+
+# Security
+security:
+  securityContext:
+    enabled: true
+    runAsUser: 1001
+    runAsNonRoot: true
+    fsGroup: 1001
+  allowRunAsRootContainers: false
+
+# RBAC
+rbac:
+  enabled: true
+
+# Health checks
+healthChecks:
+  enabled: true
+  liveness:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  readiness:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 5
+
+# Node affinity (for HA)
+affinity:
+  podAntiAffinity:
+    enabled: true
+    type: "preferred"  # Options: preferred, required

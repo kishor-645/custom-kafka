@@ -1,0 +1,439 @@
+# Kafka Kubernetes Deployment Configuration
+# Based on Bitnami Helm Chart for production-ready setup
+# Supports KRaft (Kafka Raft) consensus protocol - no ZooKeeper required
+# For development/testing: single-node setup
+# For production: modify replicas and replication factors as needed
+
+---
+# Namespace for Kafka and related services
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kafka-ns
+  labels:
+    name: kafka-ns
+
+---
+# ConfigMap with Kafka broker configuration
+# Adjust values based on your environment and requirements
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-config
+  namespace: kafka-ns
+  labels:
+    app: kafka
+    component: config
+data:
+  # =====================
+  # KRaft Configuration
+  # =====================
+  
+  # Process roles for combined broker and controller
+  # For production: split into dedicated brokers and controllers
+  KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+  
+  # Node ID - must be unique in cluster (1-100 recommended)
+  KAFKA_CFG_NODE_ID: "1"
+  
+  # Controller Quorum Voters - format: id@hostname:port
+  # Single node: 1@kafka:9093
+  # Multi-node: 1@kafka-0:9093,2@kafka-1:9093,3@kafka-2:9093
+  KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+  
+  # Cluster ID (base64 encoded) - use existing for migration
+  # Generate new: cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 22 | head -1 | base64
+  KAFKA_CFG_CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+  
+  # =====================
+  # Listener Configuration
+  # =====================
+  
+  # PLAINTEXT: client communication (no authentication)
+  # CONTROLLER: controller quorum communication
+  # INTERNAL: inter-broker communication
+  # SASL_PLAINTEXT: client communication with SASL auth
+  # SSL/SASL_SSL: encryption enabled (configure with tls.enabled=true)
+  
+  # Listeners - bind to all interfaces in container
+  KAFKA_CFG_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,INTERNAL://0.0.0.0:9094"
+  
+  # Advertised listeners - exposed to clients/brokers outside container
+  # Update INTERNAL to broker DNS when scaling (kafka-0, kafka-1, etc.)
+  KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093,INTERNAL://kafka:9094"
+  
+  # Controller listener name
+  KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+  
+  # Inter-broker listener
+  KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+  
+  # Security protocol mapping
+  KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT"
+  
+  # =====================
+  # Replication & ISR
+  # =====================
+  
+  # Single-node: set all to 1
+  # Multi-node (3+): production defaults - 3, 1, 2, 2
+  KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+  KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+  KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+  KAFKA_CFG_MIN_INSYNC_REPLICAS: "1"
+  
+  # =====================
+  # Storage
+  # =====================
+  
+  # Log directory path - use subfolder to avoid lost+found
+  KAFKA_CFG_LOG_DIRS: "/bitnami/kafka/data/logs"
+  
+  # Log retention policies
+  KAFKA_CFG_LOG_RETENTION_HOURS: "168"          # 7 days
+  KAFKA_CFG_LOG_RETENTION_BYTES: ""             # Unlimited by bytes (set to limit if needed)
+  KAFKA_CFG_LOG_SEGMENT_BYTES: "1073741824"    # 1GB segment size
+  
+  # =====================
+  # Performance Tuning
+  # =====================
+  
+  # Number of network threads
+  KAFKA_CFG_NUM_NETWORK_THREADS: "8"
+  
+  # Number of I/O threads
+  KAFKA_CFG_NUM_IO_THREADS: "8"
+  
+  # Socket send/receive buffer sizes
+  KAFKA_CFG_SOCKET_SEND_BUFFER_BYTES: "102400"
+  KAFKA_CFG_SOCKET_RECEIVE_BUFFER_BYTES: "102400"
+  KAFKA_CFG_SOCKET_REQUEST_MAX_BYTES: "104857600"
+  
+  # Message batch size
+  KAFKA_CFG_BATCH_SIZE: "16384"
+  KAFKA_CFG_LINGER_MS: "10"
+  
+  # =====================
+  # Consumer/Producer Groups
+  # =====================
+  
+  # Group coordinator settings
+  KAFKA_CFG_GROUP_INITIAL_REBALANCE_DELAY_MS: "3000"
+  
+  # =====================
+  # Broker Defaults
+  # =====================
+  
+  # Compression type
+  KAFKA_CFG_COMPRESSION_TYPE: "snappy"
+  
+  # Default number of partitions for auto-created topics
+  KAFKA_CFG_NUM_PARTITIONS: "3"
+  
+  # Default replication factor for auto-created topics
+  KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: "1"
+  
+  # JVM Heap size configuration (optional - set via KAFKA_HEAP_OPTS instead)
+  # KAFKA_CFG_HEAP_OPTS: "-Xms512M -Xmx1G"
+
+---
+# PersistentVolumeClaim for Kafka data storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data-pvc
+  namespace: kafka-ns
+  labels:
+    app: kafka
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn              # Change to your storage class
+  resources:
+    requests:
+      storage: 20Gi                        # Adjust based on expected data volume
+
+---
+# StatefulSet for Kafka broker
+# StatefulSet ensures stable pod identity and ordered deployment/scaling
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: kafka-ns
+  labels:
+    app: kafka
+    component: broker
+spec:
+  serviceName: kafka-headless             # Headless service for DNS
+  replicas: 1                              # Single node for dev; scale to 3+ for production
+  selector:
+    matchLabels:
+      app: kafka
+      component: broker
+  template:
+    metadata:
+      labels:
+        app: kafka
+        component: broker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9092"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Service account with appropriate RBAC
+      serviceAccountName: kafka
+      
+      # Security context
+      securityContext:
+        fsGroup: 1001                      # Bitnami Kafka user
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      
+      # Init containers
+      initContainers:
+        # Fix volume permissions
+        - name: volume-permissions
+          image: alpine:3.18
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - chown -R 1001:1001 /bitnami/kafka
+          securityContext:
+            runAsUser: 0
+            privileged: false
+          volumeMounts:
+            - name: kafka-storage
+              mountPath: /bitnami/kafka
+      
+      containers:
+        - name: kafka
+          image: apache/kafka:4.1.1
+          imagePullPolicy: IfNotPresent
+          
+          # Security context
+          securityContext:
+            runAsUser: 1001
+            runAsNonRoot: true
+            readOnlyRootFilesystem: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          
+          # Container ports
+          ports:
+            - name: client
+              containerPort: 9092
+              protocol: TCP
+            - name: controller
+              containerPort: 9093
+              protocol: TCP
+            - name: internal
+              containerPort: 9094
+              protocol: TCP
+          
+          # Environment variables from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: kafka-config
+          
+          # Additional environment variables
+          env:
+            # Heap opts - adjust based on node resources
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xms512M -Xmx1G"
+            
+            # Java options
+            - name: KAFKA_JVM_PERFORMANCE_OPTS
+              value: "-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35"
+          
+          # Liveness probe - check if broker is responding
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          # Readiness probe - check if broker is ready for traffic
+          readinessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          
+          # Resource requests and limits - adjust for your needs
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          
+          # Volume mounts
+          volumeMounts:
+            - name: kafka-storage
+              mountPath: /bitnami/kafka/data
+            - name: kafka-logs
+              mountPath: /var/log/kafka
+      
+      # Pod termination grace period
+      terminationGracePeriodSeconds: 60
+      
+      # Affinity rules (optional - customize for your setup)
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - kafka
+                topologyKey: kubernetes.io/hostname
+  
+  # Volume templates for StatefulSet
+  volumeClaimTemplates:
+    - metadata:
+        name: kafka-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 20Gi
+
+---
+# RBAC: ServiceAccount for Kafka pods
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka
+  namespace: kafka-ns
+  labels:
+    app: kafka
+
+---
+# RBAC: ClusterRole for Kafka auto-discovery (optional)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+
+---
+# RBAC: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kafka
+subjects:
+  - kind: ServiceAccount
+    name: kafka
+    namespace: kafka-ns
+
+---
+# Headless Service for pod DNS resolution (required for StatefulSet)
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-headless
+  namespace: kafka-ns
+  labels:
+    app: kafka
+    component: broker
+spec:
+  clusterIP: None                          # Headless service
+  selector:
+    app: kafka
+    component: broker
+  ports:
+    - name: client
+      port: 9092
+      targetPort: 9092
+      protocol: TCP
+    - name: controller
+      port: 9093
+      targetPort: 9093
+      protocol: TCP
+    - name: internal
+      port: 9094
+      targetPort: 9094
+      protocol: TCP
+  publishNotReadyAddresses: true           # Allow discovery before ready
+
+---
+# ClusterIP Service for broker access within cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: kafka-ns
+  labels:
+    app: kafka
+    component: broker
+spec:
+  type: ClusterIP
+  selector:
+    app: kafka
+    component: broker
+  ports:
+    - name: client
+      port: 9092
+      targetPort: 9092
+      protocol: TCP
+    - name: controller
+      port: 9093
+      targetPort: 9093
+      protocol: TCP
+    - name: internal
+      port: 9094
+      targetPort: 9094
+      protocol: TCP
+
+---
+# LoadBalancer Service for external access (optional)
+# For production, consider using NodePort or Ingress instead
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-external
+  namespace: kafka-ns
+  labels:
+    app: kafka
+    component: broker
+spec:
+  type: LoadBalancer
+  selector:
+    app: kafka
+    component: broker
+  ports:
+    - name: client
+      port: 9092
+      targetPort: 9092
+      protocol: TCP
+      port: 9094
+      targetPort: 9094

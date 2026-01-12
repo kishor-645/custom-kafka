@@ -1,0 +1,16 @@
+apiVersion: v2
+name: kafka
+description: Apache Kafka on Kubernetes - Simplified production-ready chart
+type: application
+version: 1.0.0
+appVersion: "4.0.0"
+keywords:
+  - kafka
+  - messaging
+  - kraft
+home: https://kafka.apache.org
+sources:
+  - https://github.com/bitnami/containers/blob/main/bitnami/kafka
+maintainers:
+  - name: Kafka Community
+    email: dev@kafka.apache.org

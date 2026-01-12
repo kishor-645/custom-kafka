@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  kafka:
+    image: kafka:kraft-kraft-v1
+    container_name: kafka-test
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      NODE_ID: "1"
+      CLUSTER_ID: "MkQwODI4NTcwNTJENDQyQjoxMjM0NTY3ODkwYWI="
+      PROCESS_ROLES: "broker,controller"
+      LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,INTERNAL://0.0.0.0:9094"
+      ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092,CONTROLLER://kafka:9093,INTERNAL://kafka:9094"
+      CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT"
+      LOG_DIRS: "/opt/kafka/data"
+    volumes:
+      - kafka_data:/opt/kafka/data
+    networks:
+      - kafka_network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  kafka_data:
+
+networks:
+  kafka_network:
+    driver: bridge

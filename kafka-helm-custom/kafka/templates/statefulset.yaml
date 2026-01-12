@@ -1,0 +1,188 @@
+{{- /*
+Kafka Broker StatefulSet
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: kafka
+    component: broker
+    release: {{ .Release.Name }}
+spec:
+  serviceName: {{ .Release.Name }}-headless
+  replicas: {{ .Values.kafka.replicas }}
+  selector:
+    matchLabels:
+      app: kafka
+      component: broker
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: kafka
+        component: broker
+        release: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}
+      {{ if .Values.security.securityContext.enabled }}
+      securityContext:
+        fsGroup: {{ .Values.security.securityContext.fsGroup }}
+      {{ end }}
+      
+      {{/* Init Containers */}}
+      {{ if not .Values.kafka.storage.ephemeral }}
+      initContainers:
+        - name: volume-permissions
+          image: "{{ .Values.initImage }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - chown -R {{ .Values.security.securityContext.fsGroup }}:{{ .Values.security.securityContext.fsGroup }} {{ .Values.kafka.storage.mountPath }}
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: kafka-data
+              mountPath: {{ .Values.kafka.storage.mountPath }}
+      {{ end }}
+      
+      {{/* Containers */}}
+      containers:
+        - name: kafka
+          image: "{{- if .Values.image.registry }}{{ .Values.image.registry }}/{{ end -}}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          securityContext:
+            runAsUser: {{ .Values.security.securityContext.runAsUser }}
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          
+          ports:
+            - name: client
+              containerPort: {{ .Values.kafka.listeners.client.port }}
+            - name: controller
+              containerPort: {{ .Values.kafka.listeners.controller.port }}
+            - name: internal
+              containerPort: {{ .Values.kafka.listeners.internal.port }}
+          
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_ID
+              value: "1"  # Calculated from pod ordinal by entrypoint script
+            - name: CLUSTER_ID
+              value: "{{ .Values.kafka.clusterId }}"
+            - name: PROCESS_ROLES
+              value: "{{ .Values.kafka.processRoles }}"
+            - name: LISTENERS
+              value: "PLAINTEXT://0.0.0.0:{{ .Values.kafka.listeners.client.port }},CONTROLLER://0.0.0.0:{{ .Values.kafka.listeners.controller.port }},INTERNAL://0.0.0.0:{{ .Values.kafka.listeners.internal.port }}"
+            - name: ADVERTISED_LISTENERS
+              value: "PLAINTEXT://$(POD_NAME).{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.client.port }},CONTROLLER://$(POD_NAME).{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.controller.port }},INTERNAL://$(POD_NAME).{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.internal.port }}"
+            - name: CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: INTER_BROKER_LISTENER_NAME
+              value: "INTERNAL"
+            - name: LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT"
+            - name: LOG_DIRS
+              value: "{{ .Values.kafka.storage.mountPath }}"
+            - name: LOG_RETENTION_HOURS
+              value: "{{ .Values.kafka.storage.logs.retentionHours }}"
+            - name: LOG_SEGMENT_BYTES
+              value: "{{ .Values.kafka.storage.logs.segmentBytes }}"
+            - name: NUM_NETWORK_THREADS
+              value: "{{ .Values.kafka.performance.networkThreads }}"
+            - name: NUM_IO_THREADS
+              value: "{{ .Values.kafka.performance.ioThreads }}"
+            - name: SOCKET_SEND_BUFFER_BYTES
+              value: "{{ .Values.kafka.performance.socketSendBufferBytes }}"
+            - name: SOCKET_RECEIVE_BUFFER_BYTES
+              value: "{{ .Values.kafka.performance.socketReceiveBufferBytes }}"
+          
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-config
+          
+          {{ if .Values.healthChecks.enabled }}
+          {{ if .Values.healthChecks.liveness.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: {{ .Values.healthChecks.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthChecks.liveness.periodSeconds }}
+          {{ end }}
+          {{ if .Values.healthChecks.readiness.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: {{ .Values.healthChecks.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthChecks.readiness.periodSeconds }}
+          {{ end }}
+          {{ end }}
+          
+          resources:
+            requests:
+              cpu: {{ .Values.kafka.resources.requests.cpu | quote }}
+              memory: {{ .Values.kafka.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.kafka.resources.limits.cpu | quote }}
+              memory: {{ .Values.kafka.resources.limits.memory | quote }}
+          
+          volumeMounts:
+            - name: kafka-data
+              mountPath: {{ .Values.kafka.storage.mountPath }}
+      
+      terminationGracePeriodSeconds: 60
+
+      {{ if .Values.kafka.storage.ephemeral }}
+      volumes:
+        - name: kafka-data
+          emptyDir: {}
+      {{ end }}
+      
+      {{ if .Values.affinity.podAntiAffinity.enabled }}
+      affinity:
+        podAntiAffinity:
+{{ if eq .Values.affinity.podAntiAffinity.type "required" }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - kafka
+                topologyKey: kubernetes.io/hostname
+{{ else }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - kafka
+                topologyKey: kubernetes.io/hostname
+{{ end }}
+      {{ end }}
+  
+  {{/* Volume Claims */}}
+  {{ if not .Values.kafka.storage.ephemeral }}
+  volumeClaimTemplates:
+    - metadata:
+        name: kafka-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.kafka.storage.className }}
+        resources:
+          requests:
+            storage: {{ .Values.kafka.storage.size }}
+  {{ end }}
