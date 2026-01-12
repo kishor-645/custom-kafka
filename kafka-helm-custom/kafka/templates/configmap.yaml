@@ -4,34 +4,20 @@ Kafka ConfigMap
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Release.Name }}-config
+  name: {{ include "kafka.fullname" . }}-config
   namespace: {{ .Values.namespace }}
   labels:
     app: kafka
     release: {{ .Release.Name }}
 data:
-  # KRaft Settings
+  # KRaft Settings (static values)
   KAFKA_CFG_PROCESS_ROLES: {{ .Values.kafka.processRoles | quote }}
-  KAFKA_CFG_NODE_ID: "1"
   KAFKA_CFG_CLUSTER_ID: {{ .Values.kafka.clusterId | quote }}
-  {{- $replicas := int .Values.kafka.replicas }}
-  {{- $voters := list }}
-  {{- if eq $replicas 1 }}
-  {{- $voters = append $voters (printf "1@%s-0.%s-headless.%s.svc.cluster.local:9093" $.Release.Name $.Release.Name $.Values.namespace) }}
-  {{- else }}
-  {{- range $i := until $replicas }}
-  {{- $nodeId := add1 $i }}
-  {{- $voters = append $voters (printf "%d@%s-%d.%s-headless.%s.svc.cluster.local:9093" $nodeId $.Release.Name $i $.Release.Name $.Values.namespace) }}
-  {{- end }}
-  {{- end }}
-  KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: {{ join "," $voters | quote }}
   
   # Listeners
-  {{- if .Values.kafka.listeners.client.enabled }}
   KAFKA_CFG_LISTENERS: "PLAINTEXT://0.0.0.0:{{ .Values.kafka.listeners.client.port }},CONTROLLER://0.0.0.0:{{ .Values.kafka.listeners.controller.port }},INTERNAL://0.0.0.0:{{ .Values.kafka.listeners.internal.port }}"
-  KAFKA_CFG_ADVERTISED_LISTENERS_TEMPLATE: "PLAINTEXT://%s.{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.client.port }},CONTROLLER://%s.{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.controller.port }},INTERNAL://%s.{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.internal.port }}"
+  KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://$(POD_NAME).{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.client.port }},CONTROLLER://$(POD_NAME).{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.controller.port }},INTERNAL://$(POD_NAME).{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.internal.port }}"
   KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT"
-  {{- end }}
   
   KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
   KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "INTERNAL"

@@ -73,11 +73,26 @@ spec:
             - /bin/bash
             - -c
             - |
+              # Calculate Pod Index from Pod name (kfk-0 -> 0, kfk-1 -> 1, etc.)
               export POD_ORDINAL=${HOSTNAME##*-}
               export NODE_ID=$((POD_ORDINAL + 1))
-              export CONTROLLER_QUORUM_VOTERS="{{ range $i, $e := until (int .Values.kafka.replicas) }}{{ if $i }},{{ end }}{{ add1 $i }}@{{ $.Release.Name }}-{{ $i }}.{{ $.Release.Name }}-headless.{{ $.Values.namespace }}.svc.cluster.local:9093{{ end }}"
+              
+              # Dynamically build the Voter list based on replica count
+              VOTERS=""
+              for i in $(seq 0 {{ sub (int .Values.kafka.replicas) 1 }}); do
+                VOTERS="${VOTERS}$(($i + 1))@{{ include "kafka.fullname" . }}-${i}.{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:9093,"
+              done
+              export CONTROLLER_QUORUM_VOTERS=${VOTERS%,}
+              
+              # Fix advertised listeners with actual pod name and namespace
+              export ADVERTISED_LISTENERS="PLAINTEXT://${HOSTNAME}.{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:9092,CONTROLLER://${HOSTNAME}.{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:9093,INTERNAL://${HOSTNAME}.{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:9094"
+              
+              echo "===== Kafka Startup ====="
               echo "Pod: $HOSTNAME, Ordinal: $POD_ORDINAL, NodeID: $NODE_ID"
               echo "Voters: $CONTROLLER_QUORUM_VOTERS"
+              echo "Advertised: $ADVERTISED_LISTENERS"
+              
+              # Now run the entrypoint
               exec /entrypoint.sh
           
           env:
@@ -122,7 +137,7 @@ spec:
           
           envFrom:
             - configMapRef:
-                name: {{ .Release.Name }}-config
+                name: {{ include "kafka.fullname" . }}-config
           
           {{ if .Values.healthChecks.enabled }}
           {{ if .Values.healthChecks.liveness.enabled }}
