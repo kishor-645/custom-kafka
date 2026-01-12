@@ -40,7 +40,7 @@ spec:
           command:
             - sh
             - -c
-            - chown -R {{ .Values.security.securityContext.fsGroup }}:{{ .Values.security.securityContext.fsGroup }} {{ .Values.kafka.storage.mountPath }}
+            - chown -R {{ .Values.security.securityContext.fsGroup }}:{{ .Values.security.securityContext.fsGroup }} {{ .Values.kafka.storage.mountPath }} && chmod -R 755 {{ .Values.kafka.storage.mountPath }} || true
           securityContext:
             runAsUser: 0
           volumeMounts:

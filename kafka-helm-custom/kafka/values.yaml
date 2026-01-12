@@ -177,12 +177,12 @@ healthChecks:
   enabled: true
   liveness:
     enabled: true
-    initialDelaySeconds: 30
+    initialDelaySeconds: 60
     periodSeconds: 10
   readiness:
     enabled: true
-    initialDelaySeconds: 10
-    periodSeconds: 5
+    initialDelaySeconds: 45
+    periodSeconds: 10
 
 # Node affinity (for HA)
 affinity:
