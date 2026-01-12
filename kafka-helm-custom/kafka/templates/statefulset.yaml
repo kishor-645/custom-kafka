@@ -69,6 +69,17 @@ spec:
             - name: internal
               containerPort: {{ .Values.kafka.listeners.internal.port }}
           
+          command:
+            - /bin/bash
+            - -c
+            - |
+              export POD_ORDINAL=${HOSTNAME##*-}
+              export NODE_ID=$((POD_ORDINAL + 1))
+              export CONTROLLER_QUORUM_VOTERS="{{ range $i, $e := until (int .Values.kafka.replicas) }}{{ if $i }},{{ end }}{{ add1 $i }}@{{ $.Release.Name }}-{{ $i }}.{{ $.Release.Name }}-headless.{{ $.Values.namespace }}.svc.cluster.local:9093{{ end }}"
+              echo "Pod: $HOSTNAME, Ordinal: $POD_ORDINAL, NodeID: $NODE_ID"
+              echo "Voters: $CONTROLLER_QUORUM_VOTERS"
+              exec /entrypoint.sh
+          
           env:
             - name: POD_NAME
               valueFrom:
@@ -78,10 +89,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: POD_ORDINAL
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.annotations['apps.kubernetes.io/pod-index']
             - name: HEADLESS_SVC
               value: "{{ .Release.Name }}-headless"
             - name: CLUSTER_ID

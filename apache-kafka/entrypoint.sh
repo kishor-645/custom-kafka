@@ -6,15 +6,12 @@ set -e
 
 echo "===> Starting Kafka with custom entrypoint..."
 echo "===> User: $(id)"
+echo "===> NODE_ID: ${NODE_ID:-NOT_SET}"
+echo "===> CONTROLLER_QUORUM_VOTERS: ${CONTROLLER_QUORUM_VOTERS:-NOT_SET}"
 
-# Extract NODE_ID from POD_NAME (kafka-0 -> 1, kafka-1 -> 2, etc.)
-# KRaft node IDs must start from 1, not 0
-POD_ORDINAL=${POD_NAME##*-}
-POD_ORDINAL=${POD_ORDINAL:-0}
-NODE_ID=$((POD_ORDINAL + 1))
-echo "===> Calculated NODE_ID from POD_NAME ($POD_NAME, ordinal=$POD_ORDINAL): $NODE_ID"
-
-# Now set the variables with proper defaults
+# NODE_ID and CONTROLLER_QUORUM_VOTERS should be set by the container command
+# If not set, use defaults
+NODE_ID=${NODE_ID:-1}
 CLUSTER_ID=${CLUSTER_ID:-$(head -c 16 /dev/urandom | base64)}
 PROCESS_ROLES=${PROCESS_ROLES:-"broker,controller"}
 LISTENERS=${LISTENERS:-"PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,INTERNAL://0.0.0.0:9094"}
@@ -29,15 +26,12 @@ else
   ADVERTISED_LISTENERS=${ADVERTISED_LISTENERS:-"PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093,INTERNAL://kafka:9094"}
 fi
 
-# Get CONTROLLER_QUORUM_VOTERS from ConfigMap (via KAFKA_CFG_ prefix from envFrom)
-if [ -n "$KAFKA_CFG_CONTROLLER_QUORUM_VOTERS" ]; then
-  CONTROLLER_QUORUM_VOTERS="$KAFKA_CFG_CONTROLLER_QUORUM_VOTERS"
-  echo "===> Using CONTROLLER_QUORUM_VOTERS from ConfigMap: $CONTROLLER_QUORUM_VOTERS"
-else
-  echo "===> WARNING: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS not found in ConfigMap!"
-  CONTROLLER_QUORUM_VOTERS="0@kafka-0.kafka-headless.default.svc.cluster.local:9093"
-  echo "===> Using default: $CONTROLLER_QUORUM_VOTERS"
+# Ensure CONTROLLER_QUORUM_VOTERS is set
+if [ -z "$CONTROLLER_QUORUM_VOTERS" ]; then
+  echo "===> WARNING: CONTROLLER_QUORUM_VOTERS not set! Using default."
+  CONTROLLER_QUORUM_VOTERS="1@kafka-0.kafka-headless.default.svc.cluster.local:9093"
 fi
+echo "===> Using CONTROLLER_QUORUM_VOTERS: $CONTROLLER_QUORUM_VOTERS"
 
 CONTROLLER_LISTENER_NAMES=${CONTROLLER_LISTENER_NAMES:-"CONTROLLER"}
 INTER_BROKER_LISTENER_NAME=${INTER_BROKER_LISTENER_NAME:-"INTERNAL"}
