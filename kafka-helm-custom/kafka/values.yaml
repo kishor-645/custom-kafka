@@ -5,7 +5,7 @@
 # If you use: helm install kafka . -n kfk
 # Then set:   namespace: kfk
 # Otherwise you'll get namespace ownership conflicts
-namespace: kfk  # Change this to match your target namespace (e.g., kfk, production, staging)
+namespace: default  # Change this to match your target namespace (e.g., kfk, production, staging)
 
 # Kafka image configuration
 # Change these to use different Docker images

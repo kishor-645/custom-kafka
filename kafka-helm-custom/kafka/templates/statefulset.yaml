@@ -74,16 +74,24 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: NODE_ID
-              value: "1"  # Calculated from pod ordinal by entrypoint script
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_ORDINAL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['apps.kubernetes.io/pod-index']
+            - name: HEADLESS_SVC
+              value: "{{ .Release.Name }}-headless"
             - name: CLUSTER_ID
               value: "{{ .Values.kafka.clusterId }}"
             - name: PROCESS_ROLES
               value: "{{ .Values.kafka.processRoles }}"
             - name: LISTENERS
               value: "PLAINTEXT://0.0.0.0:{{ .Values.kafka.listeners.client.port }},CONTROLLER://0.0.0.0:{{ .Values.kafka.listeners.controller.port }},INTERNAL://0.0.0.0:{{ .Values.kafka.listeners.internal.port }}"
-            - name: ADVERTISED_LISTENERS
-              value: "PLAINTEXT://$(POD_NAME).{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.client.port }},CONTROLLER://$(POD_NAME).{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.controller.port }},INTERNAL://$(POD_NAME).{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.internal.port }}"
+            - name: ADVERTISED_LISTENERS_TEMPLATE
+              value: "PLAINTEXT://%s.{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.client.port }},CONTROLLER://%s.{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.controller.port }},INTERNAL://%s.{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.internal.port }}"
             - name: CONTROLLER_LISTENER_NAMES
               value: "CONTROLLER"
             - name: INTER_BROKER_LISTENER_NAME
