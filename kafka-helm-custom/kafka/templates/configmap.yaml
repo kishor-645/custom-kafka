@@ -4,20 +4,25 @@ Kafka ConfigMap
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "kafka.fullname" . }}-config
+  name: kafka-config
   namespace: {{ .Values.namespace }}
   labels:
     app: kafka
-    release: {{ .Release.Name }}
 data:
-  # KRaft Settings (static values)
+  # KRaft Settings
   KAFKA_CFG_PROCESS_ROLES: {{ .Values.kafka.processRoles | quote }}
   KAFKA_CFG_CLUSTER_ID: {{ .Values.kafka.clusterId | quote }}
+  {{/* Dynamically generate controller quorum voters using headless pod FQDNs */}}
+  {{ $rep := int $.Values.kafka.replicas }}
+  {{ $ns := $.Release.Namespace }}
+  KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "{{ range $i := until $rep }}{{ if gt $i 0 }},{{ end }}{{ $i }}@kafka-{{ $i }}.kafka-headless.{{ $ns }}.svc.cluster.local:{{ $.Values.kafka.listeners.controller.port }}{{ end }}"
   
   # Listeners
+  {{- if .Values.kafka.listeners.client.enabled }}
   KAFKA_CFG_LISTENERS: "PLAINTEXT://0.0.0.0:{{ .Values.kafka.listeners.client.port }},CONTROLLER://0.0.0.0:{{ .Values.kafka.listeners.controller.port }},INTERNAL://0.0.0.0:{{ .Values.kafka.listeners.internal.port }}"
-  KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://$(POD_NAME).{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.client.port }},CONTROLLER://$(POD_NAME).{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.controller.port }},INTERNAL://$(POD_NAME).{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.internal.port }}"
+  # Per-pod advertised listeners are set in the StatefulSet environment (use pod FQDNs)
   KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT"
+  {{- end }}
   
   KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
   KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "INTERNAL"
@@ -29,8 +34,15 @@ data:
   KAFKA_CFG_MIN_INSYNC_REPLICAS: {{ .Values.kafka.replication.minInSyncReplicas | quote }}
   KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: {{ .Values.kafka.replication.defaultReplicationFactor | quote }}
   
+  # Replication settings for entrypoint script (without KAFKA_CFG_ prefix)
+  OFFSETS_TOPIC_REPLICATION_FACTOR: {{ .Values.kafka.replication.offsetsTopicReplicationFactor | quote }}
+  TRANSACTION_STATE_LOG_REPLICATION_FACTOR: {{ .Values.kafka.replication.transactionLogReplicationFactor | quote }}
+  TRANSACTION_STATE_LOG_MIN_ISR: {{ .Values.kafka.replication.transactionLogMinIsr | quote }}
+  MIN_INSYNC_REPLICAS: {{ .Values.kafka.replication.minInSyncReplicas | quote }}
+  DEFAULT_REPLICATION_FACTOR: {{ .Values.kafka.replication.defaultReplicationFactor | quote }}
+  
   # Storage
-  KAFKA_CFG_LOG_DIRS: {{ .Values.kafka.storage.mountPath }}
+  KAFKA_CFG_LOG_DIRS: {{ .Values.kafka.storage.mountPath }}/logs
   KAFKA_CFG_LOG_RETENTION_HOURS: {{ .Values.kafka.storage.logs.retentionHours | quote }}
   {{- if .Values.kafka.storage.logs.retentionBytes }}
   KAFKA_CFG_LOG_RETENTION_BYTES: {{ .Values.kafka.storage.logs.retentionBytes | quote }}

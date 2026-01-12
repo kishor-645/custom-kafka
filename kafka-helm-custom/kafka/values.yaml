@@ -5,7 +5,7 @@
 # If you use: helm install kafka . -n kfk
 # Then set:   namespace: kfk
 # Otherwise you'll get namespace ownership conflicts
-namespace: default  # Change this to match your target namespace (e.g., kfk, production, staging)
+namespace: kafka-ns  # Change this to match your target namespace (e.g., kfk, production, staging)
 
 # Kafka image configuration
 # Change these to use different Docker images
@@ -44,8 +44,11 @@ kafka:
   # Number of brokers
   replicas: 1
 
-  # Cluster configuration
+  # Broker node IDs (e.g., 1,2,3 for 3 brokers)
+  # Leave as default, will be auto-generated per replica
   clusterId: "MkU3OEVBNTcwNTJENDM2Qk"
+  nodeId: 1
+  controllerQuorumVoters: "1@kafka:9093"
   
   # KRaft mode settings
   kraftVersion: 1
@@ -181,8 +184,8 @@ healthChecks:
     periodSeconds: 10
   readiness:
     enabled: true
-    initialDelaySeconds: 45
-    periodSeconds: 10
+    initialDelaySeconds: 120
+    periodSeconds: 5
 
 # Node affinity (for HA)
 affinity:

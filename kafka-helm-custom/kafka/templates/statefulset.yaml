@@ -4,28 +4,25 @@ Kafka Broker StatefulSet
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ .Release.Name }}
+  name: kafka
   namespace: {{ .Values.namespace }}
   labels:
     app: kafka
     component: broker
-    release: {{ .Release.Name }}
 spec:
-  serviceName: {{ .Release.Name }}-headless
+  serviceName: kafka-headless
   replicas: {{ .Values.kafka.replicas }}
   selector:
     matchLabels:
       app: kafka
       component: broker
-      release: {{ .Release.Name }}
   template:
     metadata:
       labels:
         app: kafka
         component: broker
-        release: {{ .Release.Name }}
     spec:
-      serviceAccountName: {{ .Release.Name }}
+      serviceAccountName: {{ include "kafka.fullname" . }}
       {{ if .Values.security.securityContext.enabled }}
       securityContext:
         fsGroup: {{ .Values.security.securityContext.fsGroup }}
@@ -40,7 +37,7 @@ spec:
           command:
             - sh
             - -c
-            - chown -R {{ .Values.security.securityContext.fsGroup }}:{{ .Values.security.securityContext.fsGroup }} {{ .Values.kafka.storage.mountPath }} && chmod -R 755 {{ .Values.kafka.storage.mountPath }} || true
+            - chown -R {{ .Values.security.securityContext.fsGroup }}:{{ .Values.security.securityContext.fsGroup }} {{ .Values.kafka.storage.mountPath }}
           securityContext:
             runAsUser: 0
           volumeMounts:
@@ -69,31 +66,9 @@ spec:
             - name: internal
               containerPort: {{ .Values.kafka.listeners.internal.port }}
           
-          command:
-            - /bin/bash
-            - -c
-            - |
-              # Calculate Pod Index from Pod name (kfk-0 -> 0, kfk-1 -> 1, etc.)
-              export POD_ORDINAL=${HOSTNAME##*-}
-              export NODE_ID=$((POD_ORDINAL + 1))
-              
-              # Dynamically build the Voter list based on replica count
-              VOTERS=""
-              for i in $(seq 0 {{ sub (int .Values.kafka.replicas) 1 }}); do
-                VOTERS="${VOTERS}$(($i + 1))@{{ include "kafka.fullname" . }}-${i}.{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:9093,"
-              done
-              export CONTROLLER_QUORUM_VOTERS=${VOTERS%,}
-              
-              # Fix advertised listeners with actual pod name and namespace
-              export ADVERTISED_LISTENERS="PLAINTEXT://${HOSTNAME}.{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:9092,CONTROLLER://${HOSTNAME}.{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:9093,INTERNAL://${HOSTNAME}.{{ include "kafka.fullname" . }}-headless.{{ .Values.namespace }}.svc.cluster.local:9094"
-              
-              echo "===== Kafka Startup ====="
-              echo "Pod: $HOSTNAME, Ordinal: $POD_ORDINAL, NodeID: $NODE_ID"
-              echo "Voters: $CONTROLLER_QUORUM_VOTERS"
-              echo "Advertised: $ADVERTISED_LISTENERS"
-              
-              # Now run the entrypoint
-              exec /entrypoint.sh
+          envFrom:
+            - configMapRef:
+                name: kafka-config
           
           env:
             - name: POD_NAME
@@ -105,15 +80,24 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: HEADLESS_SVC
-              value: "{{ .Release.Name }}-headless"
+              value: "kafka-headless"
+
+            # NODE_ID will be derived from POD_NAME at container start (ordinal suffix)
             - name: CLUSTER_ID
               value: "{{ .Values.kafka.clusterId }}"
             - name: PROCESS_ROLES
               value: "{{ .Values.kafka.processRoles }}"
+
+            # Dynamic Controller Quorum Voters (uses headless FQDNs)
+            - name: CONTROLLER_QUORUM_VOTERS
+              value: "{{- $rep := int .Values.kafka.replicas -}}{{- $ns := .Release.Namespace -}}{{- range $i := until $rep }}{{ if gt $i 0 }},{{ end }}{{ $i }}@kafka-{{ $i }}.kafka-headless.{{ $ns }}.svc.cluster.local:{{ $.Values.kafka.listeners.controller.port }}{{- end }}"
+
             - name: LISTENERS
               value: "PLAINTEXT://0.0.0.0:{{ .Values.kafka.listeners.client.port }},CONTROLLER://0.0.0.0:{{ .Values.kafka.listeners.controller.port }},INTERNAL://0.0.0.0:{{ .Values.kafka.listeners.internal.port }}"
-            - name: ADVERTISED_LISTENERS_TEMPLATE
-              value: "PLAINTEXT://%s.{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.client.port }},CONTROLLER://%s.{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.controller.port }},INTERNAL://%s.{{ .Release.Name }}-headless.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.kafka.listeners.internal.port }}"
+
+            # Advertised listeners use the pod's FQDN (resolves before Service is Ready)
+            - name: ADVERTISED_LISTENERS
+              value: "PLAINTEXT://$(POD_NAME).$(HEADLESS_SVC).$(NAMESPACE).svc.cluster.local:{{ .Values.kafka.listeners.client.port }},INTERNAL://$(POD_NAME).$(HEADLESS_SVC).$(NAMESPACE).svc.cluster.local:{{ .Values.kafka.listeners.internal.port }}"
             - name: CONTROLLER_LISTENER_NAMES
               value: "CONTROLLER"
             - name: INTER_BROKER_LISTENER_NAME
@@ -121,7 +105,7 @@ spec:
             - name: LISTENER_SECURITY_PROTOCOL_MAP
               value: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT"
             - name: LOG_DIRS
-              value: "{{ .Values.kafka.storage.mountPath }}"
+              value: "/opt/kafka/data"
             - name: LOG_RETENTION_HOURS
               value: "{{ .Values.kafka.storage.logs.retentionHours }}"
             - name: LOG_SEGMENT_BYTES
@@ -135,10 +119,6 @@ spec:
             - name: SOCKET_RECEIVE_BUFFER_BYTES
               value: "{{ .Values.kafka.performance.socketReceiveBufferBytes }}"
           
-          envFrom:
-            - configMapRef:
-                name: {{ include "kafka.fullname" . }}-config
-          
           {{ if .Values.healthChecks.enabled }}
           {{ if .Values.healthChecks.liveness.enabled }}
           livenessProbe:
@@ -146,6 +126,7 @@ spec:
               port: client
             initialDelaySeconds: {{ .Values.healthChecks.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthChecks.liveness.periodSeconds }}
+            failureThreshold: 6
           {{ end }}
           {{ if .Values.healthChecks.readiness.enabled }}
           readinessProbe:
@@ -153,6 +134,7 @@ spec:
               port: client
             initialDelaySeconds: {{ .Values.healthChecks.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthChecks.readiness.periodSeconds }}
+            failureThreshold: 10
           {{ end }}
           {{ end }}
           
@@ -167,6 +149,14 @@ spec:
           volumeMounts:
             - name: kafka-data
               mountPath: {{ .Values.kafka.storage.mountPath }}
+
+          # Ensure NODE_ID is derived from the pod ordinal (kafka-0 -> 0)
+          command:
+            - sh
+            - -c
+            - |
+              export NODE_ID=${POD_NAME##*-}
+              exec /entrypoint.sh
       
       terminationGracePeriodSeconds: 60
 

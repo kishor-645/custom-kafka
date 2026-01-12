@@ -1,57 +1,54 @@
 {{/*
 Kafka Namespace
-DISABLED: Let Helm manage the namespace via the -n flag in helm install
-The -n flag automatically creates the namespace if it doesn't exist
-This avoids timing issues and ownership conflicts
-
-To deploy, use:
-  helm install kafka . -n kfk --create-namespace --set namespace=kfk
-
-The --create-namespace flag will create 'kfk' namespace automatically
 */}}
-
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    name: {{ .Values.namespace }}
+---
 {{/*
 Kafka ServiceAccount
 */}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ .Release.Name }}
-  namespace: {{ .Values.namespace }}
+  name: {{ include "kafka.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
-    app: kafka
-    release: {{ .Release.Name }}
+    {{- include "kafka.labels" . | nindent 4 }}
 ---
 {{/*
-Kafka ClusterRole
+Kafka Role (Namespaced)
 */}}
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
-  name: {{ .Release.Name }}-kafka
+  name: {{ include "kafka.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
-    app: kafka
-    release: {{ .Release.Name }}
+    {{- include "kafka.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
-    resources: ["pods", "services", "endpoints", "configmaps"]
+    resources: ["pods", "services", "endpoints"]
     verbs: ["get", "list", "watch"]
 ---
 {{/*
-Kafka ClusterRoleBinding
+Kafka RoleBinding (Namespaced)
 */}}
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
-  name: {{ .Release.Name }}-kafka
+  name: {{ include "kafka.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
-    app: kafka
-    release: {{ .Release.Name }}
+    {{- include "kafka.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ .Release.Name }}-kafka
+  kind: Role
+  name: {{ include "kafka.fullname" . }}
 subjects:
   - kind: ServiceAccount
-    name: {{ .Release.Name }}
-    namespace: {{ .Values.namespace }}
+    name: {{ include "kafka.fullname" . }}
+    namespace: {{ .Release.Namespace }}

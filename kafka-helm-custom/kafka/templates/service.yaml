@@ -4,18 +4,16 @@ Kafka Headless Service (for StatefulSet DNS)
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-headless
+  name: kafka-headless
   namespace: {{ .Values.namespace }}
   labels:
     app: kafka
     component: broker
-    release: {{ .Release.Name }}
 spec:
   clusterIP: None
   selector:
     app: kafka
     component: broker
-    release: {{ .Release.Name }}
   ports:
     - name: client
       port: {{ .Values.kafka.listeners.client.port }}
@@ -35,18 +33,16 @@ Kafka ClusterIP Service (for internal access)
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}
+  name: kafka
   namespace: {{ .Values.namespace }}
   labels:
     app: kafka
     component: broker
-    release: {{ .Release.Name }}
 spec:
   type: ClusterIP
   selector:
     app: kafka
     component: broker
-    release: {{ .Release.Name }}
   ports:
     - name: client
       port: {{ .Values.kafka.listeners.client.port }}
@@ -54,24 +50,22 @@ spec:
     - name: internal
       port: {{ .Values.kafka.listeners.internal.port }}
       targetPort: internal
+
+---
 {{/*
 Kafka External Service
 */}}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-external
+  name: kafka-external
   namespace: {{ .Values.namespace }}
   labels:
     app: kafka
     component: broker
-    release: {{ .Release.Name }}
 spec:
   type: {{ .Values.service.type }}
   selector:
-    app: kafka
-    component: broker
-    release: {{ .Release.Name }}
     app: kafka
     component: broker
   ports:
